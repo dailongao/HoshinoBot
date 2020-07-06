@@ -387,7 +387,6 @@ class Service:
             return nonebot.scheduler.scheduled_job(*args, **kwargs)(wrapper)
         return deco
 
-
     async def broadcast(self, msgs, TAG='', interval_time=0.5, randomiser=None):
         bot = self.bot
         if isinstance(msgs, str):
@@ -404,6 +403,15 @@ class Service:
             except Exception as e:
                 self.logger.exception(e)
                 self.logger.error(f"群{gid} 投递{TAG}失败 {type(e)}")
+                
+    async def send_to_group(self, msg, gid, TAG=''):
+        bot = self.bot
+        try:
+            await bot.send_group_msg(group_id=gid, message=msg)
+            self.logger.info(f"群{gid} 投递{TAG}成功")
+        except Exception as e:
+            self.logger.exception(e)
+            self.logger.error(f"群{gid} 投递{TAG}失败 {type(e)}")
 
 
 __all__ = ('Service', 'Privilege')

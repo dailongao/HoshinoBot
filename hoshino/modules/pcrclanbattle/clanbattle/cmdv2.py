@@ -10,6 +10,7 @@ PCR会战管理命令 v2
 """
 
 import os
+import pytz
 from datetime import datetime, timedelta
 from typing import List
 from matplotlib import pyplot as plt
@@ -322,6 +323,7 @@ SUBSCRIBE_PATH = os.path.expanduser('~/.hoshino/clanbattle_sub/')
 SUBSCRIBE_MAX = [99, 6, 6, 6, 6, 6]
 SUBSCRIBE_TREE_KEY = '0'
 LOCK_KEY = 'lock'
+STATUS_KEY = 'status'
 os.makedirs(SUBSCRIBE_PATH, exist_ok=True)
 
 def _load_sub(gid):
@@ -330,7 +332,7 @@ def _load_sub(gid):
         with open(filename, 'r', encoding='utf8') as f:
             return json.load(f)
     else:
-        return {'1':[], '2':[], '3':[], '4':[], '5':[], SUBSCRIBE_TREE_KEY:[], LOCK_KEY:[]}
+        return {'1':[], '2':[], '3':[], '4':[], '5':[], SUBSCRIBE_TREE_KEY:[], LOCK_KEY:[], STATUS_KEY: ""}
 
 
 def _save_sub(sub, gid):
@@ -445,6 +447,48 @@ async def call_subscribe(bot:NoneBot, ctx:Context_T, round_:int, boss:int):
     if msg:
         await bot.send(ctx, '\n'.join(msg), at_sender=False)    # do not at the sender
 
+@cb_cmd(('能出刀吗'), ArgParser('!能出刀吗'))
+async def show_status(bot:NoneBot, ctx:Context_T, args:ParseResult):
+    bm = BattleMaster(ctx['group_id'])
+    clan = _check_clan(bm)
+    msg = [ f"\n{clan['name']}目前能否出刀：" ]
+    sub = _load_sub(bm.group)
+    nStatus = sub.get(STATUS_KEY, "")
+    if nStatus != "":
+        msg.append(f"{nStatus}")
+    else:
+        msg.append(f"暂无消息")
+    await bot.send(ctx, '\n'.join(msg), at_sender=True)
+    
+@cb_cmd(('设置出刀状态'), ArgParser('!设置出刀状态', arg_dict={
+    '': ArgHolder(tip='出刀状态提示语')}))
+async def show_status(bot:NoneBot, ctx:Context_T, args:ParseResult):
+    bm = BattleMaster(ctx['group_id'])
+    clan = _check_clan(bm)
+    _check_admin(ctx, '才能设置出刀状态')
+    sub = _load_sub(bm.group)
+    sub[STATUS_KEY] = args['']
+    _save_sub(sub, bm.group)
+    await bot.send(ctx, f"出刀状态已设置", at_sender=True)
+    
+@cb_cmd(('清空出刀状态'), ArgParser('!清空出刀状态'))
+async def delete_status(bot:NoneBot, ctx:Context_T, args:ParseResult):
+    bm = BattleMaster(ctx['group_id'])
+    clan = _check_clan(bm)
+    _check_admin(ctx, '才能清空出刀状态')
+    sub = _load_sub(bm.group)
+    sub[STATUS_KEY] = ""
+    _save_sub(sub, bm.group)
+    await bot.send(ctx, f"出刀状态已清空", at_sender=True)
+
+@sv.scheduled_job('cron', hour='*')
+async def cron_notice_status():
+    now = datetime.now(pytz.timezone('Asia/Shanghai'))
+    if 2 <= now.hour <= 4:
+        return  # 宵禁 免打扰
+    sub = _load_sub(915988332)
+    if sub[STATUS_KEY] != "":
+        await sv.send_to_group(msg=f"【定时提醒】目前出刀状态为：{sub[STATUS_KEY]}", gid=915988332, TAG='STATUS_NOTICE')
 
 @cb_cmd(('查询预约', '预约查询', '查看预约', '预约查看'), ArgParser('!查询预约'))
 async def list_subscribe(bot:NoneBot, ctx:Context_T, args:ParseResult):
@@ -703,12 +747,17 @@ async def _do_show_remain(bot:NoneBot, ctx:Context_T, args:ParseResult, at_user:
     rlist = bm.list_challenge_remain(1, datetime.now())
     rlist.sort(key=lambda x: x[3] + x[4], reverse=True)
     msg = [ f"\n{clan['name']}今日余刀：" ]
+    tot_n = 0
+    tot_e = 0
     for uid, _, name, r_n, r_e in rlist:
         if r_n or r_e:
             msg.append(f"剩{r_n}刀 补时{r_e}刀 | {ms.at(uid) if at_user else name}")
+            tot_n += r_n
+            tot_e += r_e
     if len(msg) == 1:
         await bot.send(ctx, f"今日{clan['name']}所有成员均已下班！各位辛苦了！", at_sender=True)
     else:
+        msg.append(f"共计剩余标准刀{tot_n}刀 补时刀{tot_e}刀 兄弟们加油！")
         msg.append('若有负数说明报刀有误 请注意核对\n使用“!出刀记录 @qq”可查看详细记录')
         if at_user:
             msg.append("=========\n在？阿sir喊你出刀啦！")
